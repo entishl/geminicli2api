@@ -1,18 +1,62 @@
-name: Docker Image gminicli2api
+# 工作流名称
+name: Build and Push Docker image to GHCR
 
+# 触发工作流的事件
+# 这里设置为每当 main 分支有 push 操作时触发
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
+# 环境变量，方便后续引用
+env:
+  REGISTRY: ghcr.io
+  # ${{ github.repository }} 是一个 GitHub 变量，會自動替換為 "你的用户名/你的仓库名"
+  IMAGE_NAME: ${{ github.repository }}
+
+# 工作流中的任务
 jobs:
-
-  build:
-
+  build-and-push-image:
+    # 运行此任务的虚拟机环境
     runs-on: ubuntu-latest
+    
+    # 授予 GITHUB_TOKEN 的权限，这是推送镜像到 GHCR 所必需的 [4, 7, 10]
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+      # 第一步：签出代码
+      # 使用 actions/checkout 拉取你的仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 第二步：登录到 GitHub Container Registry
+      # 使用 docker/login-action 官方 action [1, 9]
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          # registry 设置为 GHCR 的地址 [1]
+          registry: ${{ env.REGISTRY }}
+          # username 使用触发工作流的用户名 [2]
+          username: ${{ github.actor }}
+          # password 使用自动生成的 GITHUB_TOKEN，这是推荐的安全方式 [2, 9]
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 第三步：提取元数据（镜像标签等）
+      # 这个步骤会智能地为你创建一些有用的标签，例如基于 Git 提交的 SHA 值
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      # 第四步：构建并推送到 GHCR
+      # 这是核心步骤，它会执行 docker build 和 docker push [1, 12]
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # 将上一步生成的标签应用到镜像上
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
